@@ -1,0 +1,29 @@
+# Local Python environment
+.venv/
+
+# Python and packaging output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Test and notebook caches
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local editor settings
+.vscode/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+
+# Generated experiment outputs
+runs/*
+!runs/.gitkeep
+
+# Operating-system files
+.DS_Store
+Thumbs.db
