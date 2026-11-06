@@ -42,3 +42,9 @@ In VS Code, select `.venv` as the Python interpreter and notebook kernel.
 pyproject.toml declares dependencies.
 requirements.txt captures the installed third-party versions from
 the working local environment. Colab compatibility will be verified separately.
+
+## Current status
+
+installable package and Qiskit installation done.
+validated Demo 1 configuration, derived dimensions,
+and protected configuration snapshots.
