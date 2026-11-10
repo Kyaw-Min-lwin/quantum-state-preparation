@@ -95,3 +95,33 @@ def apply_gate(psi, action_id: int) -> ComplexVector:
         qargs=list(action.qubits),
     )
     return evolved.data
+
+
+def fidelity(psi, target) -> float:
+    # Return the squared overlap of two Demo 1 statevectors
+    state = validate_state(psi, n=_DEMO1_N_QUBITS)
+    goal = validate_state(target, n=_DEMO1_N_QUBITS)
+
+    overlap = np.vdot(goal, state)
+    score = float(abs(overlap) ** 2)
+
+    # Each accepted squared norm can be slightly above 1
+    # By Cauchy–Schwarz, their product bounds the squared overlap.
+    if score > 1.0 + 3 * STATE_NORM_ATOL:
+        raise ValueError("Fidelity exceeds 1 beyond the norm tolerance.")
+
+    return min(score, 1.0)
+
+
+def canonicalise_phase(psi) -> ComplexVector:
+    # Rotate the largest amplitude onto the positive real axis
+    state = validate_state(psi, n=_DEMO1_N_QUBITS)
+    magnitudes = np.abs(state)
+
+    # returns the first index when computed magnitudes tie
+    pivot_index = int(np.argmax(magnitudes))
+    pivot_magnitude = magnitudes[pivot_index]
+    pivot = state[pivot_index]
+    state *= np.conj(pivot) / pivot_magnitude
+    state[pivot_index] = pivot_magnitude
+    return state

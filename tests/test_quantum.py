@@ -1,6 +1,13 @@
 import numpy as np
 import pytest
-from qprep.quantum import STATE_NORM_ATOL, validate_state, apply_gate, zero_state
+from qprep.quantum import (
+    STATE_NORM_ATOL,
+    validate_state,
+    apply_gate,
+    zero_state,
+    canonicalise_phase,
+    fidelity,
+)
 
 
 @pytest.mark.parametrize(
@@ -211,3 +218,44 @@ def test_bell_preparation_preserves_input_and_norm():
 def test_apply_gate_rejects_out_of_range_ids(action_id):
     with pytest.raises(ValueError, match="between"):
         apply_gate(zero_state(2), action_id)
+
+
+def test_fidelity_for_equal_orthogonal_and_phase_shifted_states():
+    psi = np.array([1, 0, 0, 1j]) / np.sqrt(2)
+    orthogonal = np.array([1, 0, 0, -1j]) / np.sqrt(2)
+
+    assert fidelity(psi, psi) == pytest.approx(1.0, abs=1e-12)
+    assert fidelity(psi, 1j * psi) == pytest.approx(1.0, abs=1e-12)
+    assert fidelity(psi, orthogonal) == pytest.approx(0.0, abs=1e-12)
+    assert fidelity(psi, zero_state(2)) == pytest.approx(0.5)
+
+
+def test_fidelity_caps_small_overshoot_from_norm_tolerance():
+    psi = [np.sqrt(1.0 + STATE_NORM_ATOL / 4), 0, 0, 0]
+    assert fidelity(psi, psi) == 1.0
+
+
+def test_fidelity_validates_the_target():
+    with pytest.raises(ValueError, match="normalised"):
+        fidelity(zero_state(2), [1, 0, 0, 1])
+
+
+def test_canonicalisation_preserves_relative_phase_and_input():
+    psi = np.array([0.5, 0, 0, 1j * np.sqrt(0.75)])
+    original = psi.copy()
+
+    canonical = canonicalise_phase(psi)
+    rotated = canonicalise_phase(np.exp(0.7j) * psi)
+
+    expected = [-0.5j, 0, 0, np.sqrt(0.75)]
+    np.testing.assert_allclose(canonical, expected, atol=1e-12, rtol=0)
+    np.testing.assert_allclose(rotated, canonical, atol=1e-12, rtol=0)
+    np.testing.assert_array_equal(psi, original)
+    assert np.vdot(canonical, canonical).real == pytest.approx(1.0)
+    assert fidelity(psi, canonical) == pytest.approx(1.0)
+
+
+def test_canonicalisation_uses_lowest_index_on_an_exact_tie():
+    psi = np.array([1j, 0, 0, 1]) / np.sqrt(2)
+    expected = np.array([1, 0, 0, -1j]) / np.sqrt(2)
+    np.testing.assert_allclose(canonicalise_phase(psi), expected, atol=1e-12, rtol=0)
