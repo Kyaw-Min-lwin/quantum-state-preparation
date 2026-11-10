@@ -13,6 +13,8 @@ from qprep.dqn import (
     compute_td_target,
     optimise_batch,
 )
+from qprep.checkpoint import checkpoint_state, load_checkpoint
+from qprep.runtime import prepare_run
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "demo1.json"
 
@@ -197,3 +199,116 @@ def test_optimise_batch_updates_chosen_actions_and_keeps_target_fixed():
     assert online_values[6] > 0
     assert torch.count_nonzero(online_values) == 2
     torch.testing.assert_close(target_values, torch.zeros(8))
+
+
+def test_checkpoint_restores_predictions_and_next_training_update(tmp_path):
+    config = load_config(CONFIG_PATH)
+    run = prepare_run(
+        config,
+        seed=config["seeds"][0],
+        project_root=CONFIG_PATH.parents[1],
+        output_root=tmp_path,
+    )
+
+    online = QNetwork(config)
+    target = build_target_network(online)
+    optimizer = torch.optim.Adam(online.parameters(), lr=config["learning_rate"])
+    replay = ReplayBuffer(3, run.rngs["replay"])
+
+    for action_id in range(5):
+        replay.add(make_transition(action_id))
+
+    # Give Adam some history and let the online weights diverge from the target
+    optimise_batch(online, target, optimizer, replay.sample(2), config["gamma"])
+
+    progress = {
+        "environment_steps": 5,
+        "gradient_steps": 1,
+        "episodes_completed": 0,
+        "epsilon": 0.8,
+    }
+    state = checkpoint_state(run, online, target, optimizer, replay, progress)
+    path = run.run_dir / "checkpoint.pt"
+    torch.save(state, path)
+
+    observation = np.zeros(17, dtype=np.float32)
+    observation_tensor = torch.from_numpy(observation)
+    with torch.no_grad():
+        expected_q = online(observation_tensor)
+        expected_target_q = target(observation_tensor)
+
+    expected_action = select_action(
+        online, observation, epsilon=0, rng=run.rngs["exploration"]
+    )
+
+    # Continue the original run for one more update.
+    replay.add(make_transition(6))
+    expected_batch = replay.sample(3)
+    expected_loss = optimise_batch(
+        online, target, optimizer, expected_batch, config["gamma"]
+    )
+
+    restored_online = QNetwork(config)
+    restored_target = build_target_network(restored_online)
+    restored_optimizer = torch.optim.Adam(
+        restored_online.parameters(), lr=config["learning_rate"]
+    )
+    restored_replay = ReplayBuffer(3, run.rngs["replay"])
+
+    loaded = load_checkpoint(
+        path,
+        run,
+        restored_online,
+        restored_target,
+        restored_optimizer,
+        restored_replay,
+    )
+
+    for name, value in progress.items():
+        assert loaded[name] == value
+
+    with torch.no_grad():
+        torch.testing.assert_close(restored_online(observation_tensor), expected_q)
+        torch.testing.assert_close(
+            restored_target(observation_tensor), expected_target_q
+        )
+
+    assert (
+        select_action(
+            restored_online, observation, epsilon=0, rng=run.rngs["exploration"]
+        )
+        == expected_action
+    )
+
+    restored_replay.add(make_transition(6))
+    actual_batch = restored_replay.sample(3)
+    np.testing.assert_array_equal(actual_batch["actions"], expected_batch["actions"])
+
+    actual_loss = optimise_batch(
+        restored_online,
+        restored_target,
+        restored_optimizer,
+        actual_batch,
+        config["gamma"],
+    )
+    assert actual_loss == pytest.approx(expected_loss)
+
+    with torch.no_grad():
+        torch.testing.assert_close(
+            restored_online(observation_tensor), online(observation_tensor)
+        )
+
+    # A checkpoint with reordered action IDs must be rejected
+    state["action_catalogue"].reverse()
+    bad_path = run.run_dir / "incompatible.pt"
+    torch.save(state, bad_path)
+
+    with pytest.raises(ValueError, match="action catalogue"):
+        load_checkpoint(
+            bad_path,
+            run,
+            restored_online,
+            restored_target,
+            restored_optimizer,
+            restored_replay,
+        )

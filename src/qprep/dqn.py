@@ -62,6 +62,35 @@ class ReplayBuffer:
             "terminated": np.array([item.terminated for item in batch], dtype=np.bool_),
         }
 
+    def state_dict(self):
+        # Save the transitions and the next slot to overwrite
+        items = []
+        for transition in self._items:
+            items.append(
+                {
+                    "observation": transition.observation.tolist(),
+                    "action_id": transition.action_id,
+                    "reward": transition.reward,
+                    "next_observation": transition.next_observation.tolist(),
+                    "terminated": transition.terminated,
+                    "truncated": transition.truncated,
+                }
+            )
+
+        return {
+            "capacity": self.capacity,
+            "next_index": self._next_index,
+            "items": items,
+        }
+
+    def load_state_dict(self, state):
+        # Restore transitions in their original slots
+        if state["capacity"] != self.capacity:
+            raise ValueError("Replay capacity does not match the checkpoint.")
+
+        self._items = [Transition(**item) for item in state["items"]]
+        self._next_index = state["next_index"]
+
 
 def select_action(network, observation, epsilon, rng):
     # Choose an action using epsilon-greedy exploration
