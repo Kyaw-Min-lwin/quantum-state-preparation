@@ -1,12 +1,15 @@
 from numbers import Integral
 import numpy as np
 from qprep.contracts import ComplexVector
+from qiskit.circuit.library import CXGate, HGate, SGate, TGate
+from qiskit.quantum_info import Statevector
+from qprep.actions import get_action
 
 # Absolute tolerance on sum(abs(amplitude) ** 2)
 STATE_NORM_ATOL = 1e-10
 
 
-def validate_state(psi, n: int) -> ComplexVector:
+def _validate_qubit_count(n: int) -> int:
     """
     Validate an n-qubit statevector.
     Return an independent complex128 array without normalising it
@@ -19,6 +22,11 @@ def validate_state(psi, n: int) -> ComplexVector:
     if n < 1:
         raise ValueError("n must be at least 1.")
 
+    return n
+
+
+def validate_state(psi, n: int) -> ComplexVector:
+    n = _validate_qubit_count(n)
     # Inspect the original array before converting its dtype.
     try:
         raw = np.asarray(psi)
@@ -58,3 +66,32 @@ def validate_state(psi, n: int) -> ComplexVector:
             f"allowed absolute error is {STATE_NORM_ATOL}."
         )
     return state
+
+
+def zero_state(n: int) -> ComplexVector:
+    # Create the all-zero computational basis state for n qubits
+    n = _validate_qubit_count(n)
+    state = np.zeros(2**n, dtype=np.complex128)
+    state[0] = 1.0
+    return state
+
+
+_DEMO1_N_QUBITS = 2
+_QISKIT_GATES = {
+    "h": HGate(),
+    "s": SGate(),
+    "t": TGate(),
+    "cx": CXGate(),
+}
+
+
+def apply_gate(psi, action_id: int) -> ComplexVector:
+    # Apply one Demo 1 action to a two-qubit state
+    action = get_action(action_id)
+    state = validate_state(psi, n=_DEMO1_N_QUBITS)
+
+    evolved = Statevector(state).evolve(
+        _QISKIT_GATES[action.gate],
+        qargs=list(action.qubits),
+    )
+    return evolved.data
