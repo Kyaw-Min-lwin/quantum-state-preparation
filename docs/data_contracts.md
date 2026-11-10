@@ -10,6 +10,10 @@
   and non-unit norm. It does not silently normalise input
 - State validation is implemented in section B
 
+The absolute tolerance on squared norm is 1e-10, defined by
+STATE_NORM_ATOL in quantum.py. Accepted inputs are copied to complex128
+without renormalisation.
+
 ## Actions
 
 Action IDs are stable:
