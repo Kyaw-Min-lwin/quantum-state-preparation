@@ -53,3 +53,78 @@ def test_seeded_resets_reproduce_target_sequence():
         _, first_info = first.reset()
         _, second_info = second.reset()
         assert first_info["target_id"] == second_info["target_id"]
+
+
+def test_bell_target_succeeds_in_two_gates():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    env.reset(options={"target_id": "E"})
+
+    obs, reward, terminated, truncated, info = env.step(0)  # H(q0)
+
+    assert env.observation_space.contains(obs)
+    assert obs[-1] == 7 / 8
+    assert reward == pytest.approx(-0.05)
+    assert not terminated
+    assert not truncated
+    assert info["fidelity"] == pytest.approx(0.25)
+    assert info["gate_count"] == 1
+
+    obs, reward, terminated, truncated, info = env.step(6)  # CX(q0, q1)
+
+    assert obs[-1] == 6 / 8
+    assert reward == pytest.approx(9.95)
+    assert terminated
+    assert not truncated
+    assert info["fidelity"] == pytest.approx(1.0)
+    assert info["end_reason"] == "success"
+    assert env.action_ids == [0, 6]
+
+
+@pytest.mark.parametrize(
+    "last_action, expected_reason, expected_reward",
+    [
+        (0, "success", 9.95),  # H(q0) reaches target A.
+        (2, "budget_exhausted", -0.05),  # S(q0) leaves |00> unchanged.
+    ],
+)
+def test_eighth_gate_ends_episode(last_action, expected_reason, expected_reward):
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    env.reset(options={"target_id": "A"})
+
+    for _ in range(7):
+        _, _, terminated, truncated, _ = env.step(2)  # S(q0)
+        assert not terminated
+        assert not truncated
+
+    obs, reward, terminated, truncated, info = env.step(last_action)
+
+    assert obs[-1] == 0.0
+    assert reward == pytest.approx(expected_reward)
+    assert terminated
+    assert not truncated
+    assert info["gate_count"] == 8
+    assert info["end_reason"] == expected_reason
+
+    with pytest.raises(RuntimeError, match="complete"):
+        env.step(0)
+
+
+def test_invalid_action_leaves_budget_and_log_unchanged():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    env.reset(options={"target_id": "E"})
+
+    with pytest.raises(ValueError):
+        env.step(-1)
+
+    assert env.remaining_gates == 8
+    assert env.action_ids == []
+
+
+def test_step_requires_an_active_episode():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    with pytest.raises(RuntimeError, match="reset"):
+        env.step(0)
+    env.reset(options={"target_id": "zero"})
+    with pytest.raises(RuntimeError, match="complete"):
+        env.step(0)
+    assert env.action_ids == []

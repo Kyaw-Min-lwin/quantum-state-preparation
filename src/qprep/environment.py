@@ -1,8 +1,19 @@
 import gymnasium as gym
 import numpy as np
 from qprep.encoding import encode_observation
-from qprep.quantum import fidelity, zero_state
+from qprep.quantum import fidelity, zero_state, apply_gate
 from qprep.targets import build_target_catalogue, sample_target
+
+
+def compute_outcome(score, remaining_gates, config):
+    # return the reward, termination flag, and reason after one gate
+    reward = config["gate_reward"]
+
+    if score >= config["success_fidelity"]:
+        return reward + config["success_bonus"], True, "success"
+    if remaining_gates == 0:
+        return reward, True, "budget_exhausted"
+    return reward, False, None
 
 
 class QuantumEnv(gym.Env):
@@ -56,3 +67,39 @@ class QuantumEnv(gym.Env):
             "end_reason": self.end_reason,
         }
         return observation, info
+
+    def step(self, action):
+        if self.target is None:
+            raise RuntimeError("Call reset() before step().")
+
+        if self.terminated:
+            raise RuntimeError("Episode is complete. Call reset() before step().")
+
+        next_state = apply_gate(self.state, action)
+        remaining_gates = self.remaining_gates - 1
+        score = fidelity(next_state, self.target.state)
+
+        reward, terminated, end_reason = compute_outcome(
+            score, remaining_gates, self.config
+        )
+        observation = encode_observation(
+            next_state, self.target.state, remaining_gates, self.max_gates
+        )
+
+        self.state = next_state
+        self.remaining_gates = remaining_gates
+        self.action_ids.append(int(action))
+        self.terminated = terminated
+        self.end_reason = end_reason
+
+        info = {
+            "target_id": self.target.target_id,
+            "initial_fidelity": self.initial_fidelity,
+            "fidelity": score,
+            "remaining_gates": remaining_gates,
+            "gate_count": len(self.action_ids),
+            "end_reason": end_reason,
+        }
+
+        truncated = False
+        return observation, reward, terminated, truncated, info
