@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
 from uuid import uuid4
-
 import numpy as np
 import torch
 
 from qprep.config import save_resolved_config
+from qprep.actions import serialise_action_catalogue
 
 STREAM_NAMES = (
     "targets",
@@ -153,6 +153,11 @@ def prepare_run(
     #  this run's settings independent of the caller's dictionary
     run_config = copy.deepcopy(config)
     save_resolved_config(run_config, run_dir)
+
+    write_json(
+        run_dir / "action_catalogue.json",
+        serialise_action_catalogue(),
+    )
 
     metadata = {
         "schema_version": 1,

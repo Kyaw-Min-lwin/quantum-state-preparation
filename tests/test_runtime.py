@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from qprep.config import load_config
 from qprep.runtime import STREAM_NAMES, make_rngs, prepare_run
-
+from qprep.actions import serialise_action_catalogue
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "demo1.json"
@@ -47,9 +47,7 @@ def test_run_records_settings_and_environment(tmp_path):
     saved_config = json.loads(
         (run.run_dir / "config.resolved.json").read_text(encoding="utf-8")
     )
-    metadata = json.loads(
-        (run.run_dir / "metadata.json").read_text(encoding="utf-8")
-    )
+    metadata = json.loads((run.run_dir / "metadata.json").read_text(encoding="utf-8"))
 
     assert saved_config == config
     assert metadata["seed"] == 0
@@ -60,6 +58,11 @@ def test_run_records_settings_and_environment(tmp_path):
 
     config["hidden_sizes"][0] = 999
     assert run.config["hidden_sizes"][0] == 128
+
+    saved_actions = json.loads(
+        (run.run_dir / "action_catalogue.json").read_text(encoding="utf-8")
+    )
+    assert saved_actions == serialise_action_catalogue()
 
 
 def test_each_run_gets_a_new_directory(tmp_path):
