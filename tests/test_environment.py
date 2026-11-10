@@ -2,6 +2,9 @@ from pathlib import Path
 import pytest
 from qprep.config import load_config
 from qprep.environment import QuantumEnv
+from gymnasium.utils.env_checker import check_env
+from qprep.targets import REFERENCE_ACTIONS
+from qprep.rollout import rollout
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "demo1.json"
 
@@ -128,3 +131,73 @@ def test_step_requires_an_active_episode():
     with pytest.raises(RuntimeError, match="complete"):
         env.step(0)
     assert env.action_ids == []
+
+
+def test_environment_follows_gymnasium_api():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    check_env(env, skip_render_check=True, skip_close_check=True)
+
+
+@pytest.mark.parametrize("target_id", ["A", "B", "C", "D", "E", "F"])
+def test_reference_circuit_solves_target_through_environment(target_id):
+    config = load_config(CONFIG_PATH)
+    env = QuantumEnv(config)
+    env.reset(options={"target_id": target_id})
+
+    actions = REFERENCE_ACTIONS[target_id]
+    for index, action in enumerate(actions, start=1):
+        obs, _, terminated, truncated, info = env.step(action)
+
+        assert env.observation_space.contains(obs)
+        assert info["gate_count"] == index
+        assert not truncated
+        assert terminated == (index == len(actions))
+
+    assert info["end_reason"] == "success"
+    assert info["fidelity"] >= config["success_fidelity"]
+    assert env.action_ids == list(actions)
+
+
+def test_rollout_records_bell_preparation():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+    actions = iter([0, 6])
+
+    def policy(observation):
+        return next(actions)
+
+    trace = rollout(env, policy, target_id="E")
+
+    assert trace.target_id == "E"
+    assert trace.initial_fidelity == pytest.approx(0.5)
+    assert [step.action_id for step in trace.steps] == [0, 6]
+    assert trace.steps[0].fidelity == pytest.approx(0.25)
+    assert trace.final_fidelity == pytest.approx(1.0)
+    assert trace.total_reward == pytest.approx(9.90)
+    assert trace.end_reason == "success"
+
+
+def test_rollout_retains_failed_episode():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+
+    def policy(observation):
+        return 2  # S(q0) leaves |00> unchanged.
+
+    trace = rollout(env, policy, target_id="A")
+
+    assert trace.gate_count == 8
+    assert trace.total_reward == pytest.approx(-0.40)
+    assert trace.end_reason == "budget_exhausted"
+
+
+def test_already_solved_rollout_never_calls_policy():
+    env = QuantumEnv(load_config(CONFIG_PATH))
+
+    def policy(observation):
+        pytest.fail("The zero target should finish before selecting an action.")
+
+    trace = rollout(env, policy, target_id="zero")
+
+    assert trace.steps == ()
+    assert trace.final_fidelity == 1.0
+    assert trace.total_reward == 0.0
+    assert trace.end_reason == "already_solved"
