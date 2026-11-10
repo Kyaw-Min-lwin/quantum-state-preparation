@@ -26,3 +26,21 @@ def build_target_catalogue() -> dict[str, Target]:
         )
 
     return catalogue
+
+
+def sample_target(rng, catalogue: dict[str, Target], target_id=None) -> Target:
+    # sample a training target or return a specific evaluation target
+    if target_id is None:
+        target_id = str(rng.choice(list(REFERENCE_ACTIONS)))
+
+    if target_id == "zero":
+        return Target(
+            target_id="zero",
+            state=zero_state(2),
+            reference_action_ids=(),
+        )
+
+    if target_id not in catalogue:
+        raise ValueError(f"Unknown target ID: {target_id!r}")
+
+    return catalogue[target_id]
