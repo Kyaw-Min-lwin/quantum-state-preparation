@@ -10,6 +10,8 @@ from qprep.dqn import (
     select_action,
     build_target_network,
     sync_target_network,
+    compute_td_target,
+    optimise_batch,
 )
 
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "demo1.json"
@@ -134,3 +136,64 @@ def test_target_network_changes_only_when_synchronised():
         torch.testing.assert_close(target(observation), online(observation))
 
     assert all(not parameter.requires_grad for parameter in target.parameters())
+
+
+def test_td_target_uses_future_value_only_for_continuing_transitions():
+    config = load_config(CONFIG_PATH)
+    online = QNetwork(config)
+    target = build_target_network(online)
+
+    # Give every next observation a known maximum Q-value of 4.
+    with torch.no_grad():
+        target.layers[-1].weight.zero_()
+        target.layers[-1].bias.zero_()
+        target.layers[-1].bias[6] = 4.0
+
+    batch = {
+        "next_observations": np.zeros((3, 17), dtype=np.float32),
+        "rewards": np.array([-0.05, -0.05, 9.95], dtype=np.float32),
+        "terminated": np.array([False, True, True]),
+    }
+
+    targets = compute_td_target(target, batch, config["gamma"])
+
+    assert targets[0].item() == pytest.approx(3.91)
+    assert torch.equal(targets[1:], torch.from_numpy(batch["rewards"][1:]))
+    assert not targets.requires_grad
+
+
+def test_optimise_batch_updates_chosen_actions_and_keeps_target_fixed():
+    config = load_config(CONFIG_PATH)
+    online = QNetwork(config)
+
+    with torch.no_grad():
+        for parameter in online.parameters():
+            parameter.zero_()
+
+    target = build_target_network(online)
+    optimizer = torch.optim.Adam(online.parameters(), lr=config["learning_rate"])
+    batch = {
+        "observations": np.zeros((2, 17), dtype=np.float32),
+        "actions": np.array([0, 6], dtype=np.int64),
+        "rewards": np.array([-0.05, 9.95], dtype=np.float32),
+        "next_observations": np.zeros((2, 17), dtype=np.float32),
+        "terminated": np.array([True, True]),
+    }
+
+    loss = optimise_batch(online, target, optimizer, batch, config["gamma"])
+
+    assert np.isfinite(loss)
+    assert loss > 0
+    for parameter in online.parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+
+    observation = torch.zeros(17)
+    with torch.no_grad():
+        online_values = online(observation)
+        target_values = target(observation)
+
+    assert online_values[0] < 0
+    assert online_values[6] > 0
+    assert torch.count_nonzero(online_values) == 2
+    torch.testing.assert_close(target_values, torch.zeros(8))

@@ -89,3 +89,38 @@ def build_target_network(online_network):
 def sync_target_network(online_network, target_network):
     # Copy the current online weights into the target network
     target_network.load_state_dict(online_network.state_dict())
+
+
+@torch.no_grad()
+def compute_td_target(target_network, batch, gamma):
+    # Compute one learning target per replay transition
+    device = next(target_network.parameters()).device
+    next_observations = torch.as_tensor(
+        batch["next_observations"], dtype=torch.float32, device=device
+    )
+    rewards = torch.as_tensor(batch["rewards"], dtype=torch.float32, device=device)
+    terminated = torch.as_tensor(batch["terminated"], dtype=torch.bool, device=device)
+
+    best_next_values = target_network(next_observations).max(dim=1).values
+    continuing_targets = rewards + gamma * best_next_values
+    return torch.where(terminated, rewards, continuing_targets)
+
+
+def optimise_batch(online_network, target_network, optimizer, batch, gamma):
+    # Update the online network once and return the batch loss
+    device = next(online_network.parameters()).device
+    observations = torch.as_tensor(
+        batch["observations"], dtype=torch.float32, device=device
+    )
+    actions = torch.as_tensor(batch["actions"], dtype=torch.long, device=device)
+
+    all_q_values = online_network(observations)
+    chosen_q_values = all_q_values.gather(1, actions[:, None]).squeeze(1)
+    targets = compute_td_target(target_network, batch, gamma)
+
+    loss = nn.functional.smooth_l1_loss(chosen_q_values, targets)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    return loss.item()
