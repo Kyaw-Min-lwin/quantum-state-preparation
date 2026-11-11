@@ -13,7 +13,7 @@ from qprep.dqn import (
 from qprep.environment import QuantumEnv
 from qprep.checkpoint import checkpoint_state, load_checkpoint
 from qprep.evaluate import evaluate_policy
-
+from time import perf_counter
 
 def epsilon_at_step(config, step):
     # Decrease exploration linearly, stopping at epsilon_end
@@ -29,7 +29,7 @@ class Trainer:
     def __init__(self, run):
         self.run = run
         self.config = run.config
-
+        self.training_seconds = 0.0
         self.online = QNetwork(self.config).to(run.device)
         self.target = build_target_network(self.online)
         self.optimizer = torch.optim.Adam(
@@ -134,10 +134,14 @@ class Trainer:
             raise ValueError("This block would exceed training_steps.")
 
         log_path = self.run.run_dir / "training.jsonl"
+        started = perf_counter()
+
         with log_path.open("a", encoding="utf-8") as file:
             for _ in range(steps):
                 record = self.train_step()
                 file.write(json.dumps(record, allow_nan=False) + "\n")
+
+        self.training_seconds += perf_counter() - started
 
 
 def save_training_checkpoint(trainer, evaluation):
@@ -158,6 +162,7 @@ def save_training_checkpoint(trainer, evaluation):
         rollout_state={
             "episode_done": trainer.episode_done,
             "episode_return": trainer.episode_return,
+            "training_seconds": trainer.training_seconds,
         },
     )
     state["evaluation"] = evaluation
@@ -198,6 +203,9 @@ def restore_training_checkpoint(trainer, path):
 
     for name in trainer.progress:
         trainer.progress[name] = state[name]
+
+    trainer.training_seconds = state["rollout_state"].get("training_seconds", 0.0)
+    return state
 
 
 def train_to_next_checkpoint(trainer):

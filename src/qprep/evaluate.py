@@ -6,22 +6,33 @@ from qprep.dqn import select_action
 from qprep.environment import QuantumEnv
 from qprep.quantum import fidelity
 from qprep.rollout import rollout
+from time import perf_counter
 
-
-def evaluate_policy(network, config, rng):
+def evaluate_policy(network, config, rng, *, measure_inference=False):
     # Evaluate one greedy rollout per fixture and verify each circuit
     env = QuantumEnv(config)
     evaluation_seed = int(rng.integers(0, 2**32))
     results = []
 
+    inference_seconds = 0.0
+
     def greedy_policy(observation):
-        return select_action(network, observation, epsilon=0, rng=rng)
+        nonlocal inference_seconds
+
+        if not measure_inference:
+            return select_action(network, observation, epsilon=0, rng=rng)
+
+        started = perf_counter()
+        action = select_action(network, observation, epsilon=0, rng=rng)
+        inference_seconds += perf_counter() - started
+        return action
 
     was_training = network.training
     network.eval()
 
     try:
         for target_id in config["target_ids"]:
+            inference_seconds = 0.0
             trace = rollout(
                 env,
                 greedy_policy,
@@ -51,6 +62,8 @@ def evaluate_policy(network, config, rng):
                     "trace": asdict(trace),
                 }
             )
+            if measure_inference:
+                results[-1]["inference_seconds"] = inference_seconds
     finally:
         network.train(was_training)
     return results
