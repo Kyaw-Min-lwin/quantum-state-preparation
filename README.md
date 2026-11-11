@@ -1,50 +1,28 @@
 # Quantum State Preparation
 
-Final-year project investigating goal-conditioned reinforcement learning
-for quantum state preparation.
+My final-year project explores whether reinforcement learning can build a quantum circuit that prepares a target state using few gates. The project uses Qiskit for simulation and PyTorch for the Deep Q-Network (DQN).
 
-## Demo 1 scope
+## Demo 1
 
-- Two noiseless qubits, starting from |00>.
-- Qiskit basis ordering: |q1 q0>.
-- Planned actions: H, S and T on either qubit, and CX in both directions.
-- Planned gate budget: eight.
-- Planned learner: DQN.
-- Demo 1 does not establish generalisation or optimality.
+The agent starts at `|00⟩` and has up to eight gates to reach a two-qubit target. It can apply H, S, or T to either qubit, or CX in either direction.
 
-## Current status
+| Policy | Successful attempts | Success rate |
+| --- | ---: | ---: |
+| DQN | 18/18 | 100.0% |
+| Random gate selection | 142/600 | 23.7% |
 
-A3 project skeleton and installation check.
-The quantum environment and learner are not implemented yet.
+Each of the three DQN training seeds solved all six training targets. All 18 evaluations matched after reloading the saved models. Successful DQN circuits used six gates on average, and 17 of 18 were longer than the known reference circuits. The next step is to evaluate on unseen targets.
 
-## Development setup
+See the [presentation notebook](notebooks/demo1_presentation.ipynb) for the results and circuit examples, or the [result note](docs/demo1_result_note.md) for the experiment details.
 
-Use Python 3.12.
+## Run locally
+
+Use Python 3.12. From the project root in PowerShell:
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m qprep.smoke_check
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-In VS Code, select `.venv` as the Python interpreter and notebook kernel.
-
-## Layout
-
-- src/qprep/: reusable implementation
-- tests/: correctness checks
-- configs/: experiment configuration
-- notebooks/: demonstration entry points
-- runs/: generated experiment outputs, ignored by Git
-
-## Dependencies
-
-pyproject.toml declares dependencies.
-requirements.txt captures the installed third-party versions from
-the working local environment. Colab compatibility will be verified separately.
-
-## Current status
-
-installable package and Qiskit installation done.
-validated Demo 1 configuration, derived dimensions,
-and protected configuration snapshots.
+In VS Code, select `.venv` as the notebook kernel. To rerun the presentation notebook, point `experiment_dir` at the folder containing `selected_checkpoints.json`, `demo1_results.json`, and the checkpoint files. Generated run files are kept locally and ignored by Git.
